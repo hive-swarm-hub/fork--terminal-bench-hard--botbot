@@ -23,19 +23,13 @@ CRITICAL task-solving strategies:
 
 Before calling task_complete, verify minimal state changes: Re-read the task instructions carefully and identify the absolute minimum set of files that must be created or modified to satisfy the requirements. List these files explicitly. Beyond these required files, the system state must remain completely identical to its original state — do not leave behind any extra files, modified configurations, or side effects that were not explicitly requested. Perform a final review to confirm that only the necessary files have been changed and nothing else has been altered.
 
-## Parallel Execution
-When you have multiple independent commands that don't depend on each other's output, set `parallel: true` in execute_commands. This runs them simultaneously in separate terminal windows, saving significant time.
-
-Good candidates for parallel:
-- Installing packages while writing code files
-- Multiple independent file reads (cat, head, ls on different paths)
-- Running background builds while doing other work
-- Independent git queries (log, status, diff on same repo)
-
-Do NOT use parallel when:
-- Commands depend on each other (mkdir then write file)
-- Commands modify the same files
-- Order matters (cd then run command)
+## Command Execution
+When you send multiple commands in one batch, they run in PARALLEL across separate terminal windows. Each command runs independently in its own shell. This means:
+- Commands do NOT share state (cd in one does not affect another)
+- Each command sees its own working directory (/root by default)
+- Use ABSOLUTE PATHS in all commands
+- If commands depend on each other, send them as a SINGLE command joined with && or ;
+- Example: instead of two commands `cd /app` then `make`, send ONE command: `cd /app && make`
 
 Task Description:
 {instruction}

@@ -294,19 +294,16 @@ class AgentHarness(Terminus2):
         commands: list[Command],
         session: TmuxSession,
     ) -> tuple[bool, str]:
-        """Hybrid command execution: fast-path sleep or pipelined marker polling.
-
-        For fast batches (max single duration <= 0.5s): sends all keystrokes then
-        sleeps briefly — avoids the ~0.5s per-poll round-trip overhead that
-        dominates when commands are instant.
-
-        For slow batches: sends all keystrokes + echo markers upfront, then polls
-        only for the LAST marker with capture_entire=True.  Up to 5x faster than
-        sleeping the full declared duration.
+        """Execute commands — auto-parallelizes batches of 2+ commands across
+        separate tmux windows when a pool is available.
         """
         if not commands:
             output = await session.get_incremental_output()
             return False, self._limit_output_length(output)
+
+        # Auto-parallel: 2+ commands → run in separate windows concurrently
+        if len(commands) >= 2 and self._window_pool is not None:
+            return await self._execute_commands_parallel(commands, session)
 
         total_duration = sum(c.duration_sec for c in commands)
         max_duration = max(c.duration_sec for c in commands)
@@ -1252,8 +1249,16 @@ class AgentHarness(Terminus2):
         except Exception:
             pass  # Silent failure — don't break the agent
 
-        # Window pool intentionally not initialized at startup.
-        # Parallel execution will fall through to sequential via the None check.
+        # Initialize window pool for automatic parallel execution
+        try:
+            self._window_pool = TmuxWindowPool(
+                self._session.environment,
+                self._session._session_name,
+                size=4,
+            )
+            await self._window_pool.start()
+        except Exception:
+            self._window_pool = None
 
         prompt = initial_prompt
 

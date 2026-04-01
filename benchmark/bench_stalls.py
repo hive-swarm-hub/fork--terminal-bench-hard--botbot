@@ -288,10 +288,221 @@ async def exec_smart(session, commands):
     return time.monotonic() - t0, _strip_markers(await session.get_incremental_output())
 
 
+async def exec_true_parallel(session, commands):
+    """True parallel: run ALL commands simultaneously in separate tmux windows.
+
+    1. Pre-create one tmux window per command
+    2. Send each command + marker to its own window simultaneously
+    3. Poll ALL windows concurrently with asyncio.gather
+    4. Collect outputs in order
+    5. If a window stalls (marker not found by deadline), kill it and note stall
+    """
+    t0 = time.monotonic()
+    env = session.environment
+    sess_name = session._session_name
+
+    # Separate empty-wait commands from real commands
+    windows = []  # (index, cmd, win_name, marker) for real commands
+    empty_indices = set()
+
+    seq_base = int(time.monotonic() * 1000) % 100000
+    for i, cmd in enumerate(commands):
+        if not cmd.keystrokes.strip():
+            empty_indices.add(i)
+        else:
+            win_name = f"tp{seq_base}_{i}"
+            marker = _next_marker()
+            windows.append((i, cmd, win_name, marker))
+
+    # Create all windows up front
+    for _i, _cmd, win_name, _marker in windows:
+        await env.exec(command=f"tmux new-window -t {sess_name} -n {win_name} -d")
+        await env.exec(
+            command=f"tmux send-keys -t {sess_name}:{win_name} "
+                    f"{shlex.quote('export PAGER=cat GIT_PAGER=cat MANPAGER=cat')} Enter"
+        )
+
+    # Send all commands simultaneously (fire-and-forget loop)
+    for _i, cmd, win_name, marker in windows:
+        target = f"{sess_name}:{win_name}"
+        await env.exec(command=f"tmux send-keys -t {target} {shlex.quote(cmd.keystrokes)}")
+        await env.exec(command=f"tmux send-keys -t {target} {shlex.quote(f'echo {marker}\n')}")
+
+    # Poll each window concurrently
+    async def poll_window(idx, cmd, win_name, marker):
+        target = f"{sess_name}:{win_name}"
+        deadline = time.monotonic() + cmd.duration + 3.0
+        await asyncio.sleep(min(0.3, cmd.duration))
+        while time.monotonic() < deadline:
+            result = await env.exec(command=f"tmux capture-pane -p -S - -t {target}")
+            pane = result.stdout or ""
+            if marker in pane:
+                return idx, pane, False  # (index, output, stalled)
+            await asyncio.sleep(0.5)
+        # Timed out — capture whatever is there
+        result = await env.exec(command=f"tmux capture-pane -p -S - -t {target}")
+        return idx, result.stdout or "", True
+
+    poll_tasks = [
+        poll_window(idx, cmd, win_name, marker)
+        for idx, cmd, win_name, marker in windows
+    ]
+    poll_results = await asyncio.gather(*poll_tasks)
+
+    # Build ordered output
+    by_index = {idx: (out, stalled) for idx, out, stalled in poll_results}
+    ordered_outputs = []
+    for i, cmd in enumerate(commands):
+        if i in empty_indices:
+            # Empty wait — just note it was skipped
+            ordered_outputs.append(f"[true_parallel: empty wait {cmd.duration}s skipped]")
+        else:
+            out, stalled = by_index[i]
+            if stalled:
+                ordered_outputs.append(out)
+                ordered_outputs.append(
+                    f"\n[STALL: command {i} stalled "
+                    f"({cmd.keystrokes.strip()[:60]}), window killed]\n"
+                )
+            else:
+                ordered_outputs.append(out)
+
+    # Kill all windows
+    for _i, _cmd, win_name, _marker in windows:
+        await env.exec(command=f"tmux kill-window -t {sess_name}:{win_name}")
+
+    combined = _strip_markers("\n".join(ordered_outputs))
+    return time.monotonic() - t0, combined
+
+
+class _WindowPool:
+    """Pre-allocated tmux windows for stall failover."""
+
+    def __init__(self, env, sess_name: str, size: int = 3):
+        self._env = env
+        self._sess = sess_name
+        self._size = size
+        self._ready: list[str] = []
+        self._seq = 0
+
+    async def start(self):
+        for _ in range(self._size):
+            name = await self._create()
+            self._ready.append(name)
+
+    async def _create(self) -> str:
+        self._seq += 1
+        name = f"pool{self._seq}"
+        await self._env.exec(command=f"tmux new-window -t {self._sess} -n {name} -d")
+        await self._env.exec(
+            command=f"tmux send-keys -t {self._sess}:{name} "
+                    f"{shlex.quote('export PAGER=cat GIT_PAGER=cat MANPAGER=cat')} Enter"
+        )
+        await asyncio.sleep(0.2)
+        return name
+
+    async def acquire(self) -> str:
+        if self._ready:
+            return self._ready.pop(0)
+        return await self._create()
+
+
+async def exec_stall_resilient(session, commands):
+    """Hybrid stall-resilient: pipeline commands in the main window with per-command
+    stall detection.  On stall, capture current output, switch to a pool window,
+    and continue the remaining commands there.
+
+    1. Pipeline commands with markers in the MAIN window (like hybrid)
+    2. Per-command stall detection: if pane unchanged for 3 consecutive polls, it's stalled
+    3. On stall: capture current output, switch to a pre-allocated pool window,
+       continue remaining commands there
+    4. Include stall info in output: [STALL: command {i} stalled, switched to fresh window]
+    """
+    t0 = time.monotonic()
+    env = session.environment
+    sess_name = session._session_name
+
+    pool = _WindowPool(env, sess_name, size=2)
+    await pool.start()
+
+    current_target = f"{sess_name}:0"
+    outputs = []
+
+    for i, cmd in enumerate(commands):
+        marker = _next_marker()
+
+        # Empty-wait commands: just sleep briefly and move on
+        if not cmd.keystrokes.strip():
+            await asyncio.sleep(min(cmd.duration, 2.0))
+            continue
+
+        # Send command + marker to current window
+        await env.exec(
+            command=f"tmux send-keys -t {current_target} {shlex.quote(cmd.keystrokes)}"
+        )
+        await env.exec(
+            command=f"tmux send-keys -t {current_target} "
+                    f"{shlex.quote(f'echo {marker}' + chr(10))}"
+        )
+
+        # Poll for marker; detect stall by consecutive unchanged pane snapshots
+        per_cmd_timeout = max(cmd.duration + 3.0, 5.0)
+        poll_start = time.monotonic()
+        await asyncio.sleep(min(0.3, cmd.duration))
+
+        found = False
+        prev_pane = ""
+        unchanged_polls = 0
+
+        while time.monotonic() - poll_start < per_cmd_timeout:
+            result = await env.exec(
+                command=f"tmux capture-pane -p -S - -t {current_target}"
+            )
+            pane = result.stdout or ""
+
+            if marker in pane:
+                found = True
+                outputs.append(pane)
+                break
+
+            if pane == prev_pane:
+                unchanged_polls += 1
+            else:
+                unchanged_polls = 0
+            prev_pane = pane
+
+            # 3 consecutive unchanged polls after ≥2s → stall
+            if unchanged_polls >= 3 and time.monotonic() - poll_start > 2.0:
+                break
+
+            await asyncio.sleep(0.5)
+
+        if not found:
+            # Capture whatever we have from the stalled window
+            result = await env.exec(
+                command=f"tmux capture-pane -p -S - -t {current_target}"
+            )
+            outputs.append(result.stdout or "")
+
+            stall_msg = (
+                f"\n[STALL: command {i} stalled, switched to fresh window]\n"
+            )
+            outputs.append(stall_msg)
+
+            # Switch to a fresh pool window; leave stalled window alive
+            new_win = await pool.acquire()
+            current_target = f"{sess_name}:{new_win}"
+
+    combined = _strip_markers("\n".join(outputs))
+    return time.monotonic() - t0, combined
+
+
 STRATEGIES = {
     "original": exec_original,
     "hybrid": exec_hybrid,
     "smart": exec_smart,
+    "true_parallel": exec_true_parallel,
+    "stall_resilient": exec_stall_resilient,
 }
 
 

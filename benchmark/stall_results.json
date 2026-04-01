@@ -12,7 +12,7 @@
   {
     "case": "stuck_sqlite3",
     "strategy": "hybrid",
-    "wall": 5.6,
+    "wall": 3.6,
     "correct": true,
     "within_target": true,
     "target": 15.0,
@@ -22,7 +22,27 @@
   {
     "case": "stuck_sqlite3",
     "strategy": "smart",
-    "wall": 4.1,
+    "wall": 2.6,
+    "correct": true,
+    "within_target": true,
+    "target": 15.0,
+    "agent_duration": 93.5,
+    "empty_wait": 90.0
+  },
+  {
+    "case": "stuck_sqlite3",
+    "strategy": "true_parallel",
+    "wall": 5.9,
+    "correct": true,
+    "within_target": true,
+    "target": 15.0,
+    "agent_duration": 93.5,
+    "empty_wait": 90.0
+  },
+  {
+    "case": "stuck_sqlite3",
+    "strategy": "stall_resilient",
+    "wall": 10.0,
     "correct": true,
     "within_target": true,
     "target": 15.0,
@@ -42,7 +62,7 @@
   {
     "case": "training_empty_waits",
     "strategy": "hybrid",
-    "wall": 7.0,
+    "wall": 4.4,
     "correct": true,
     "within_target": true,
     "target": 20.0,
@@ -52,7 +72,27 @@
   {
     "case": "training_empty_waits",
     "strategy": "smart",
-    "wall": 3.1,
+    "wall": 2.1,
+    "correct": true,
+    "within_target": true,
+    "target": 20.0,
+    "agent_duration": 422.5,
+    "empty_wait": 420.0
+  },
+  {
+    "case": "training_empty_waits",
+    "strategy": "true_parallel",
+    "wall": 4.2,
+    "correct": true,
+    "within_target": true,
+    "target": 20.0,
+    "agent_duration": 422.5,
+    "empty_wait": 420.0
+  },
+  {
+    "case": "training_empty_waits",
+    "strategy": "stall_resilient",
+    "wall": 18.7,
     "correct": true,
     "within_target": true,
     "target": 20.0,
@@ -62,7 +102,7 @@
   {
     "case": "hung_python_no_sigint",
     "strategy": "original",
-    "wall": 13.7,
+    "wall": 10.4,
     "correct": true,
     "within_target": true,
     "target": 15.0,
@@ -72,7 +112,7 @@
   {
     "case": "hung_python_no_sigint",
     "strategy": "hybrid",
-    "wall": 8.6,
+    "wall": 5.5,
     "correct": true,
     "within_target": true,
     "target": 15.0,
@@ -82,7 +122,27 @@
   {
     "case": "hung_python_no_sigint",
     "strategy": "smart",
-    "wall": 7.5,
+    "wall": 5.1,
+    "correct": true,
+    "within_target": true,
+    "target": 15.0,
+    "agent_duration": 43.5,
+    "empty_wait": 35.0
+  },
+  {
+    "case": "hung_python_no_sigint",
+    "strategy": "true_parallel",
+    "wall": 12.3,
+    "correct": true,
+    "within_target": true,
+    "target": 15.0,
+    "agent_duration": 43.5,
+    "empty_wait": 35.0
+  },
+  {
+    "case": "hung_python_no_sigint",
+    "strategy": "stall_resilient",
+    "wall": 14.6,
     "correct": true,
     "within_target": true,
     "target": 15.0,
@@ -92,7 +152,7 @@
   {
     "case": "apt_blocks_terminal",
     "strategy": "original",
-    "wall": 36.7,
+    "wall": 35.1,
     "correct": true,
     "within_target": false,
     "target": 25.0,
@@ -102,7 +162,7 @@
   {
     "case": "apt_blocks_terminal",
     "strategy": "hybrid",
-    "wall": 6.3,
+    "wall": 13.0,
     "correct": true,
     "within_target": true,
     "target": 25.0,
@@ -112,7 +172,27 @@
   {
     "case": "apt_blocks_terminal",
     "strategy": "smart",
-    "wall": 12.6,
+    "wall": 11.7,
+    "correct": true,
+    "within_target": true,
+    "target": 25.0,
+    "agent_duration": 46.6,
+    "empty_wait": 0
+  },
+  {
+    "case": "apt_blocks_terminal",
+    "strategy": "true_parallel",
+    "wall": 10.1,
+    "correct": true,
+    "within_target": true,
+    "target": 25.0,
+    "agent_duration": 46.6,
+    "empty_wait": 0
+  },
+  {
+    "case": "apt_blocks_terminal",
+    "strategy": "stall_resilient",
+    "wall": 16.5,
     "correct": true,
     "within_target": true,
     "target": 25.0,
@@ -122,9 +202,9 @@
   {
     "case": "fast_control",
     "strategy": "original",
-    "wall": 6.5,
+    "wall": 4.4,
     "correct": true,
-    "within_target": false,
+    "within_target": true,
     "target": 5.0,
     "agent_duration": 0.5,
     "empty_wait": 0
@@ -132,7 +212,7 @@
   {
     "case": "fast_control",
     "strategy": "hybrid",
-    "wall": 3.2,
+    "wall": 2.1,
     "correct": true,
     "within_target": true,
     "target": 5.0,
@@ -142,9 +222,29 @@
   {
     "case": "fast_control",
     "strategy": "smart",
-    "wall": 3.2,
+    "wall": 2.1,
     "correct": true,
     "within_target": true,
+    "target": 5.0,
+    "agent_duration": 0.5,
+    "empty_wait": 0
+  },
+  {
+    "case": "fast_control",
+    "strategy": "true_parallel",
+    "wall": 9.3,
+    "correct": true,
+    "within_target": false,
+    "target": 5.0,
+    "agent_duration": 0.5,
+    "empty_wait": 0
+  },
+  {
+    "case": "fast_control",
+    "strategy": "stall_resilient",
+    "wall": 7.4,
+    "correct": true,
+    "within_target": false,
     "target": 5.0,
     "agent_duration": 0.5,
     "empty_wait": 0

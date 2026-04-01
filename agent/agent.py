@@ -1252,16 +1252,8 @@ class AgentHarness(Terminus2):
         except Exception:
             pass  # Silent failure — don't break the agent
 
-        # Initialize window pool for parallel execution
-        try:
-            self._window_pool = TmuxWindowPool(
-                self._session.environment,
-                self._session._session_name,
-                size=4,
-            )
-            await self._window_pool.start()
-        except Exception:
-            self._window_pool = None  # Fallback: parallel won't be available
+        # Window pool intentionally not initialized at startup.
+        # Parallel execution will fall through to sequential via the None check.
 
         prompt = initial_prompt
 

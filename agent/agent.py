@@ -301,15 +301,16 @@ class AgentHarness(Terminus2):
             output = await session.get_incremental_output()
             return False, self._limit_output_length(output)
 
-        # Auto-parallel: 2+ commands → run in separate windows concurrently
-        if len(commands) >= 2 and self._window_pool is not None:
+        max_dur = max(c.duration_sec for c in commands)
+
+        # Auto-parallel: multiple commands with at least one slow command
+        if len(commands) >= 2 and max_dur > 5.0 and self._window_pool is not None:
             return await self._execute_commands_parallel(commands, session)
 
         total_duration = sum(c.duration_sec for c in commands)
-        max_duration = max(c.duration_sec for c in commands)
 
         # ---- Fast path: all commands are quick, skip marker overhead ----
-        if max_duration <= 0.5:
+        if max_dur <= 0.5:
             for command in commands:
                 await session.send_keys(
                     command.keystrokes, block=False, min_timeout_sec=0.0,

@@ -1,0 +1,70 @@
+/opt/homebrew/Caskroom/miniforge/base/lib/python3.12/asyncio/events.py:88: PendingDeprecationError: 2026-03-09: `Sandbox.open()` is deprecated. Use the `Sandbox.filesystem` APIs instead.
+  self._context.run(self._callback, *self._args)
+/opt/homebrew/Caskroom/miniforge/base/lib/python3.12/asyncio/events.py:88: PendingDeprecationError: 2026-03-09: `Sandbox.open()` is deprecated. Use the `Sandbox.filesystem` APIs instead.
+  self._context.run(self._callback, *self._args)
+/opt/homebrew/Caskroom/miniforge/base/lib/python3.12/asyncio/events.py:88: PendingDeprecationError: 2026-03-09: `FileIO.write()` is deprecated. Use `Sandbox.filesystem.write_text()`, `Sandbox.filesystem.write_bytes()`, or `Sandbox.filesystem.copy_from_local()` instead.
+  self._context.run(self._callback, *self._args)
+/opt/homebrew/Caskroom/miniforge/base/lib/python3.12/asyncio/events.py:88: PendingDeprecationError: 2026-03-09: `FileIO.write()` is deprecated. Use `Sandbox.filesystem.write_text()`, `Sandbox.filesystem.write_bytes()`, or `Sandbox.filesystem.copy_from_local()` instead.
+  self._context.run(self._callback, *self._args)
+/opt/homebrew/Caskroom/miniforge/base/lib/python3.12/asyncio/events.py:88: PendingDeprecationError: 2026-03-09: `Sandbox.open()` is deprecated. Use the `Sandbox.filesystem` APIs instead.
+  self._context.run(self._callback, *self._args)
+/opt/homebrew/Caskroom/miniforge/base/lib/python3.12/asyncio/events.py:88: PendingDeprecationError: 2026-03-09: `FileIO.write()` is deprecated. Use `Sandbox.filesystem.write_text()`, `Sandbox.filesystem.write_bytes()`, or `Sandbox.filesystem.copy_from_local()` instead.
+  self._context.run(self._callback, *self._args)
+/opt/homebrew/Caskroom/miniforge/base/lib/python3.12/asyncio/events.py:88: PendingDeprecationError: 2026-03-09: `Sandbox.open()` is deprecated. Use the `Sandbox.filesystem` APIs instead.
+  self._context.run(self._callback, *self._args)
+/opt/homebrew/Caskroom/miniforge/base/lib/python3.12/asyncio/events.py:88: PendingDeprecationError: 2026-03-09: `FileIO.write()` is deprecated. Use `Sandbox.filesystem.write_text()`, `Sandbox.filesystem.write_bytes()`, or `Sandbox.filesystem.copy_from_local()` instead.
+  self._context.run(self._callback, *self._args)
+/opt/homebrew/Caskroom/miniforge/base/lib/python3.12/asyncio/events.py:88: PendingDeprecationError: 2026-03-09: `Sandbox.open()` is deprecated. Use the `Sandbox.filesystem` APIs instead.
+  self._context.run(self._callback, *self._args)
+/opt/homebrew/Caskroom/miniforge/base/lib/python3.12/asyncio/events.py:88: PendingDeprecationError: 2026-03-09: `Sandbox.open()` is deprecated. Use the `Sandbox.filesystem` APIs instead.
+  self._context.run(self._callback, *self._args)
+/opt/homebrew/Caskroom/miniforge/base/lib/python3.12/asyncio/events.py:88: PendingDeprecationError: 2026-03-09: `FileIO.write()` is deprecated. Use `Sandbox.filesystem.write_text()`, `Sandbox.filesystem.write_bytes()`, or `Sandbox.filesystem.copy_from_local()` instead.
+  self._context.run(self._callback, *self._args)
+/opt/homebrew/Caskroom/miniforge/base/lib/python3.12/asyncio/events.py:88: PendingDeprecationError: 2026-03-09: `Sandbox.open()` is deprecated. Use the `Sandbox.filesystem` APIs instead.
+  self._context.run(self._callback, *self._args)
+/opt/homebrew/Caskroom/miniforge/base/lib/python3.12/asyncio/events.py:88: PendingDeprecationError: 2026-03-09: `FileIO.write()` is deprecated. Use `Sandbox.filesystem.write_text()`, `Sandbox.filesystem.write_bytes()`, or `Sandbox.filesystem.copy_from_local()` instead.
+  self._context.run(self._callback, *self._args)
+/opt/homebrew/Caskroom/miniforge/base/lib/python3.12/asyncio/events.py:88: PendingDeprecationError: 2026-03-09: `FileIO.write()` is deprecated. Use `Sandbox.filesystem.write_text()`, `Sandbox.filesystem.write_bytes()`, or `Sandbox.filesystem.copy_from_local()` instead.
+  self._context.run(self._callback, *self._args)
+/opt/homebrew/Caskroom/miniforge/base/lib/python3.12/asyncio/events.py:88: PendingDeprecationError: 2026-03-09: `Sandbox.open()` is deprecated. Use the `Sandbox.filesystem` APIs instead.
+  self._context.run(self._callback, *self._args)
+/opt/homebrew/Caskroom/miniforge/base/lib/python3.12/asyncio/events.py:88: PendingDeprecationError: 2026-03-09: `FileIO.write()` is deprecated. Use `Sandbox.filesystem.write_text()`, `Sandbox.filesystem.write_bytes()`, or `Sandbox.filesystem.copy_from_local()` instead.
+  self._context.run(self._callback, *self._args)
+/opt/homebrew/Caskroom/miniforge/base/lib/python3.12/asyncio/events.py:88: PendingDeprecationError: 2026-03-09: `Sandbox.open()` is deprecated. Use the `Sandbox.filesystem` APIs instead.
+  self._context.run(self._callback, *self._args)
+/opt/homebrew/Caskroom/miniforge/base/lib/python3.12/asyncio/events.py:88: PendingDeprecationError: 2026-03-09: `FileIO.write()` is deprecated. Use `Sandbox.filesystem.write_text()`, `Sandbox.filesystem.write_bytes()`, or `Sandbox.filesystem.copy_from_local()` instead.
+  self._context.run(self._callback, *self._args)
+/opt/homebrew/Caskroom/miniforge/base/lib/python3.12/asyncio/events.py:88: PendingDeprecationError: 2026-03-09: `Sandbox.open()` is deprecated. Use the `Sandbox.filesystem` APIs instead.
+  self._context.run(self._callback, *self._args)
+/opt/homebrew/Caskroom/miniforge/base/lib/python3.12/asyncio/events.py:88: PendingDeprecationError: 2026-03-09: `Sandbox.open()` is deprecated. Use the `Sandbox.filesystem` APIs instead.
+  self._context.run(self._callback, *self._args)
+/opt/homebrew/Caskroom/miniforge/base/lib/python3.12/asyncio/events.py:88: PendingDeprecationError: 2026-03-09: `FileIO.write()` is deprecated. Use `Sandbox.filesystem.write_text()`, `Sandbox.filesystem.write_bytes()`, or `Sandbox.filesystem.copy_from_local()` instead.
+  self._context.run(self._callback, *self._args)
+/opt/homebrew/Caskroom/miniforge/base/lib/python3.12/asyncio/events.py:88: PendingDeprecationError: 2026-03-09: `Sandbox.open()` is deprecated. Use the `Sandbox.filesystem` APIs instead.
+  self._context.run(self._callback, *self._args)
+/opt/homebrew/Caskroom/miniforge/base/lib/python3.12/asyncio/events.py:88: PendingDeprecationError: 2026-03-09: `Sandbox.open()` is deprecated. Use the `Sandbox.filesystem` APIs instead.
+  self._context.run(self._callback, *self._args)
+/opt/homebrew/Caskroom/miniforge/base/lib/python3.12/asyncio/events.py:88: PendingDeprecationError: 2026-03-09: `FileIO.write()` is deprecated. Use `Sandbox.filesystem.write_text()`, `Sandbox.filesystem.write_bytes()`, or `Sandbox.filesystem.copy_from_local()` instead.
+  self._context.run(self._callback, *self._args)
+/opt/homebrew/Caskroom/miniforge/base/lib/python3.12/asyncio/events.py:88: PendingDeprecationError: 2026-03-09: `FileIO.write()` is deprecated. Use `Sandbox.filesystem.write_text()`, `Sandbox.filesystem.write_bytes()`, or `Sandbox.filesystem.copy_from_local()` instead.
+  self._context.run(self._callback, *self._args)
+/opt/homebrew/Caskroom/miniforge/base/lib/python3.12/asyncio/events.py:88: PendingDeprecationError: 2026-03-09: `Sandbox.open()` is deprecated. Use the `Sandbox.filesystem` APIs instead.
+  self._context.run(self._callback, *self._args)
+/opt/homebrew/Caskroom/miniforge/base/lib/python3.12/asyncio/events.py:88: PendingDeprecationError: 2026-03-09: `FileIO.write()` is deprecated. Use `Sandbox.filesystem.write_text()`, `Sandbox.filesystem.write_bytes()`, or `Sandbox.filesystem.copy_from_local()` instead.
+  self._context.run(self._callback, *self._args)
+/opt/homebrew/Caskroom/miniforge/base/lib/python3.12/asyncio/events.py:88: PendingDeprecationError: 2026-03-09: `Sandbox.open()` is deprecated. Use the `Sandbox.filesystem` APIs instead.
+  self._context.run(self._callback, *self._args)
+/opt/homebrew/Caskroom/miniforge/base/lib/python3.12/asyncio/events.py:88: PendingDeprecationError: 2026-03-09: `FileIO.write()` is deprecated. Use `Sandbox.filesystem.write_text()`, `Sandbox.filesystem.write_bytes()`, or `Sandbox.filesystem.copy_from_local()` instead.
+  self._context.run(self._callback, *self._args)
+/opt/homebrew/Caskroom/miniforge/base/lib/python3.12/asyncio/events.py:88: PendingDeprecationError: 2026-03-09: `FileIO.write()` is deprecated. Use `Sandbox.filesystem.write_text()`, `Sandbox.filesystem.write_bytes()`, or `Sandbox.filesystem.copy_from_local()` instead.
+  self._context.run(self._callback, *self._args)
+/opt/homebrew/Caskroom/miniforge/base/lib/python3.12/asyncio/events.py:88: PendingDeprecationError: 2026-03-09: `Sandbox.open()` is deprecated. Use the `Sandbox.filesystem` APIs instead.
+  self._context.run(self._callback, *self._args)
+/opt/homebrew/Caskroom/miniforge/base/lib/python3.12/asyncio/events.py:88: PendingDeprecationError: 2026-03-09: `Sandbox.open()` is deprecated. Use the `Sandbox.filesystem` APIs instead.
+  self._context.run(self._callback, *self._args)
+/opt/homebrew/Caskroom/miniforge/base/lib/python3.12/asyncio/events.py:88: PendingDeprecationError: 2026-03-09: `FileIO.write()` is deprecated. Use `Sandbox.filesystem.write_text()`, `Sandbox.filesystem.write_bytes()`, or `Sandbox.filesystem.copy_from_local()` instead.
+  self._context.run(self._callback, *self._args)
+/opt/homebrew/Caskroom/miniforge/base/lib/python3.12/asyncio/events.py:88: PendingDeprecationError: 2026-03-09: `FileIO.write()` is deprecated. Use `Sandbox.filesystem.write_text()`, `Sandbox.filesystem.write_bytes()`, or `Sandbox.filesystem.copy_from_local()` instead.
+  self._context.run(self._callback, *self._args)
+/opt/homebrew/Caskroom/miniforge/base/lib/python3.12/asyncio/events.py:88: PendingDeprecationError: 2026-03-09: `Sandbox.open()` is deprecated. Use the `Sandbox.filesystem` APIs instead.
+  self._context.run(self._callback, *self._args)

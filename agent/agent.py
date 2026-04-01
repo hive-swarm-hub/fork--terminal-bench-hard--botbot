@@ -8,6 +8,7 @@ and injects it into the initial prompt.
 
 import asyncio
 import json
+import shlex
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -175,6 +176,16 @@ TOOLS = [
                             "required": ["keystrokes"],
                         },
                     },
+                    "parallel": {
+                        "type": "boolean",
+                        "description": (
+                            "Set to true to run commands in parallel across separate terminal windows. "
+                            "Use this when commands are independent and don't depend on each other's output "
+                            "(e.g., installing packages while writing code, multiple independent file reads, "
+                            "running tests while editing other files). "
+                            "Default is false (sequential execution)."
+                        ),
+                    },
                 },
                 "required": ["analysis", "plan", "commands"],
             },
@@ -216,6 +227,48 @@ TOOLS = [
 ]
 
 
+class TmuxWindowPool:
+    """Pre-allocated pool of tmux windows for parallel execution and stall recovery."""
+
+    def __init__(self, environment, session_name: str, size: int = 4):
+        self._env = environment
+        self._sess = session_name
+        self._ready: list[str] = []
+        self._seq = 0
+        self._size = size
+
+    async def start(self):
+        """Pre-create the pool windows."""
+        for _ in range(self._size):
+            name = await self._create()
+            self._ready.append(name)
+
+    async def _create(self) -> str:
+        self._seq += 1
+        name = f"pool{self._seq}"
+        await self._env.exec(
+            command=f"tmux new-window -t {self._sess} -n {name} -d"
+        )
+        # Set PAGER=cat in the new window
+        await self._env.exec(
+            command=f"tmux send-keys -t {self._sess}:{name} 'export PAGER=cat GIT_PAGER=cat MANPAGER=cat' Enter"
+        )
+        return name
+
+    async def acquire(self) -> str:
+        """Get a ready window, creating one if pool is empty."""
+        if self._ready:
+            return self._ready.pop(0)
+        return await self._create()
+
+    async def release(self, name: str):
+        """Return a window to the pool after resetting it."""
+        target = f"{self._sess}:{name}"
+        await self._env.exec(command=f"tmux send-keys -t {target} C-c")
+        await self._env.exec(command=f"tmux send-keys -t {target} ' reset' Enter")
+        self._ready.append(name)
+
+
 class AgentHarness(Terminus2):
     """
     TerminusKira extends harbor's Terminus2 with native tool calling.
@@ -227,6 +280,7 @@ class AgentHarness(Terminus2):
         super().__init__(*args, **kwargs)
         self._marker_seq = 0
         self._total_time_saved = 0.0
+        self._window_pool: TmuxWindowPool | None = None
 
     async def _with_block_timeout(self, coro, timeout_sec: int = BLOCK_TIMEOUT_SEC):
         """Wrap coroutine with block detection timeout."""
@@ -338,6 +392,136 @@ class AgentHarness(Terminus2):
 
         return False, self._limit_output_length(output)
 
+    async def _execute_commands_parallel(
+        self,
+        commands: list[Command],
+        session: TmuxSession,
+    ) -> tuple[bool, str]:
+        """Execute commands in parallel across separate tmux windows.
+
+        Each command gets its own tmux window from the pool and runs simultaneously.
+        Results are collected concurrently with asyncio.gather.
+        """
+        if not commands:
+            output = await session.get_incremental_output()
+            return False, self._limit_output_length(output)
+
+        if self._window_pool is None:
+            # Fallback to sequential if pool not initialized
+            return await self._execute_commands(commands, session)
+
+        env = session.environment
+        sess_name = session._session_name
+
+        # Acquire windows for each command
+        window_assignments = []  # (cmd_index, command, window_name, marker)
+        for i, command in enumerate(commands):
+            if not command.keystrokes.strip():
+                # Empty commands just sleep
+                window_assignments.append((i, command, None, None))
+                continue
+            win_name = await self._window_pool.acquire()
+            self._marker_seq += 1
+            marker = f"{_MARKER_PREFIX}{self._marker_seq}__"
+            window_assignments.append((i, command, win_name, marker))
+
+        # Fire all commands simultaneously
+        for i, command, win_name, marker in window_assignments:
+            if win_name is None:
+                continue
+            target = f"{sess_name}:{win_name}"
+            await env.exec(
+                command=f"tmux send-keys -t {target} {shlex.quote(command.keystrokes)}"
+            )
+            await env.exec(
+                command=f"tmux send-keys -t {target} {shlex.quote(f'echo {marker}' + chr(10))}"
+            )
+
+        # Poll all windows concurrently
+        async def poll_window(cmd_idx, command, win_name, marker):
+            target = f"{sess_name}:{win_name}"
+            deadline = time.monotonic() + min(command.duration_sec + 3.0, 63.0)
+            await asyncio.sleep(min(0.3, command.duration_sec))
+
+            prev_pane = ""
+            unchanged_polls = 0
+
+            while time.monotonic() < deadline:
+                result = await env.exec(
+                    command=f"tmux capture-pane -p -S - -t {target}"
+                )
+                pane = result.stdout or ""
+
+                if marker in pane:
+                    # Release window back to pool
+                    await self._window_pool.release(win_name)
+                    saved = command.duration_sec - (time.monotonic() - (deadline - command.duration_sec - 3.0))
+                    if saved > 0.1:
+                        self._total_time_saved += saved
+                    return cmd_idx, pane, False
+
+                # Stall detection
+                if pane == prev_pane:
+                    unchanged_polls += 1
+                else:
+                    unchanged_polls = 0
+                prev_pane = pane
+
+                if unchanged_polls >= 6:  # 3s of no change
+                    break
+
+                await asyncio.sleep(0.5)
+
+            # Stalled or timed out — capture what we have
+            result = await env.exec(
+                command=f"tmux capture-pane -p -S - -t {target}"
+            )
+            # Kill and replace the stalled window
+            await self._window_pool.release(win_name)
+            return cmd_idx, (result.stdout or "") + f"\n[STALL: command timed out after {command.duration_sec}s]", True
+
+        # Gather results concurrently
+        poll_tasks = []
+        for i, command, win_name, marker in window_assignments:
+            if win_name is not None:
+                poll_tasks.append(poll_window(i, command, win_name, marker))
+
+        if poll_tasks:
+            results = await asyncio.gather(*poll_tasks)
+        else:
+            results = []
+
+        # Handle empty waits
+        for i, command, win_name, marker in window_assignments:
+            if win_name is None:
+                await asyncio.sleep(min(command.duration_sec, 2.0))
+
+        # Build ordered output
+        result_by_idx = {idx: (out, stalled) for idx, out, stalled in results}
+        output_parts = []
+        for i, command, win_name, marker in window_assignments:
+            if win_name is None:
+                continue  # skip empty waits in output
+            out, stalled = result_by_idx.get(i, ("", False))
+            output_parts.append(out)
+
+        # Also get any output from the main session
+        try:
+            main_output = await session.get_incremental_output()
+            if main_output.strip():
+                output_parts.append(main_output)
+        except Exception:
+            pass
+
+        # Clean markers from output
+        combined = "\n".join(output_parts)
+        markers = {f"{_MARKER_PREFIX}{seq}__" for seq in range(1, self._marker_seq + 1)}
+        lines = combined.split("\n")
+        lines = [line for line in lines if not any(m in line for m in markers)]
+        output = "\n".join(lines)
+
+        return False, self._limit_output_length(output)
+
     @staticmethod
     def name() -> str:
         return "terminus-kira-env-bootstrap"
@@ -427,11 +611,11 @@ class AgentHarness(Terminus2):
 
     def _parse_tool_calls(
         self, tool_calls: list[dict[str, Any]]
-    ) -> tuple[list[Command], bool, str, str, str, ImageReadRequest | None]:
+    ) -> tuple[list[Command], bool, str, str, str, ImageReadRequest | None, bool]:
         """Parse tool calls into commands.
 
         Returns:
-            Tuple of (commands, is_task_complete, feedback, analysis, plan, image_read)
+            Tuple of (commands, is_task_complete, feedback, analysis, plan, image_read, parallel)
         """
         commands = []
         is_task_complete = False
@@ -439,13 +623,14 @@ class AgentHarness(Terminus2):
         analysis = ""
         plan = ""
         image_read = None
+        parallel = False
 
         if not tool_calls:
             feedback = (
                 "WARNINGS: Your response contained no tool calls. "
                 "Please use execute_commands to run commands."
             )
-            return commands, is_task_complete, feedback, analysis, plan, image_read
+            return commands, is_task_complete, feedback, analysis, plan, image_read, parallel
 
         for tool_call in tool_calls:
             function_name = tool_call.get("function", {}).get("name", "")
@@ -464,6 +649,7 @@ class AgentHarness(Terminus2):
                 # Extract analysis and plan
                 analysis = arguments.get("analysis", "")
                 plan = arguments.get("plan", "")
+                parallel = arguments.get("parallel", False)
 
                 # Extract commands array (Haiku sometimes double-encodes as a JSON string)
                 cmds = arguments.get("commands", [])
@@ -506,7 +692,7 @@ class AgentHarness(Terminus2):
                 )
                 self.logger.warning(f"Unknown function called: {function_name}")
 
-        return commands, is_task_complete, feedback, analysis, plan, image_read
+        return commands, is_task_complete, feedback, analysis, plan, image_read, parallel
 
     @retry(
         stop=stop_after_attempt(5),
@@ -721,7 +907,7 @@ class AgentHarness(Terminus2):
         original_instruction: str = "",
         session: TmuxSession | None = None,
     ) -> tuple[
-        list[Command], bool, str, str, str, LLMResponse, ImageReadRequest | None
+        list[Command], bool, str, str, str, LLMResponse, ImageReadRequest | None, bool
     ]:
         """Handle LLM interaction using native tool calling.
 
@@ -899,7 +1085,7 @@ class AgentHarness(Terminus2):
             response_path.write_text(response_text)
 
         # Parse tool calls into commands
-        commands, is_task_complete, feedback, analysis, plan, image_read = (
+        commands, is_task_complete, feedback, analysis, plan, image_read, parallel = (
             self._parse_tool_calls(tool_response.tool_calls)
         )
 
@@ -918,6 +1104,7 @@ class AgentHarness(Terminus2):
             plan,
             llm_response,
             image_read,
+            parallel,
         )
 
     async def _gather_env_snapshot(self) -> str:
@@ -1065,6 +1252,17 @@ class AgentHarness(Terminus2):
         except Exception:
             pass  # Silent failure — don't break the agent
 
+        # Initialize window pool for parallel execution
+        try:
+            self._window_pool = TmuxWindowPool(
+                self._session.environment,
+                self._session._session_name,
+                size=4,
+            )
+            await self._window_pool.start()
+        except Exception:
+            self._window_pool = None  # Fallback: parallel won't be available
+
         prompt = initial_prompt
 
         self._context.n_input_tokens = 0
@@ -1107,6 +1305,7 @@ class AgentHarness(Terminus2):
                 plan,
                 llm_response,
                 image_read,
+                parallel,
             ) = await self._handle_llm_interaction(
                 chat, prompt, logging_paths, original_instruction, self._session
             )
@@ -1291,12 +1490,20 @@ class AgentHarness(Terminus2):
                 prompt = observation
             else:
                 # Commands path (existing behavior)
-                timeout_occurred, terminal_output = await self._with_block_timeout(
-                    self._execute_commands(
-                        commands,
-                        self._session,
+                if parallel and len(commands) > 1:
+                    timeout_occurred, terminal_output = await self._with_block_timeout(
+                        self._execute_commands_parallel(
+                            commands,
+                            self._session,
+                        )
                     )
-                )
+                else:
+                    timeout_occurred, terminal_output = await self._with_block_timeout(
+                        self._execute_commands(
+                            commands,
+                            self._session,
+                        )
+                    )
 
                 was_pending_completion = self._pending_completion
 

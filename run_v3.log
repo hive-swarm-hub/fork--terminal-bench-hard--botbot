@@ -10254,3 +10254,34 @@ Failed to download logs to /Users/tianhaowu/terminal-bench-hard/jobs/2026-04-01_
   self._context.run(self._callback, *self._args)
 /opt/homebrew/Caskroom/miniforge/base/lib/python3.12/asyncio/events.py:88: PendingDeprecationError: 2026-03-09: `FileIO.read()` is deprecated. Use `Sandbox.filesystem.read_text()`, `Sandbox.filesystem.read_bytes()`, or `Sandbox.filesystem.copy_to_local()` instead.
   self._context.run(self._callback, *self._args)
+
+[1;31mGive Feedback / Get Help: https://github.com/BerriAI/litellm/issues/new[0m
+LiteLLM.Info: If you need to debug this error, use `litellm._turn_on_debug()'.
+
+  20/20 Mean: 0.100 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 1:06:28 0:00:00Results written to /Users/tianhaowu/terminal-bench-hard/jobs/2026-04-01__15-20-01/result.json
+       terminus-kira-env-bootstrap (claude-opus-4-6) on terminal-bench        
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ Metric                     ┃ Value                                         ┃
+┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
+│ Agent                      │ terminus-kira-env-bootstrap (claude-opus-4-6) │
+│ Dataset                    │ terminal-bench                                │
+│ Trials                     │ 17                                            │
+│ Errors                     │ 9                                             │
+│                            │                                               │
+│ Mean                       │ 0.100                                         │
+│                            │                                               │
+│ Reward Distribution        │                                               │
+│   reward = 0.0             │ 15                                            │
+│   reward = 1.0             │ 2                                             │
+│                            │                                               │
+│ Exception Distribution     │                                               │
+│   AgentTimeoutError        │ 6                                             │
+│   FilesystemExecutionError │ 1                                             │
+│   RuntimeError             │ 1                                             │
+│   VerifierTimeoutError     │ 1                                             │
+└────────────────────────────┴───────────────────────────────────────────────┘
+
+---
+mean_pass_rate:   0.200
+correct:          4
+total:            19

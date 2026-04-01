@@ -123,6 +123,14 @@ _DURATION_DESC = (
 
 _TASK_COMPLETE_DESC = "Call this when the task is complete."
 
+_RESET_TERMINAL_DESC = (
+    "Emergency recovery: kills ALL running processes and resets the terminal. "
+    "Use this ONLY when the terminal is completely stuck and unresponsive — "
+    "e.g., a process ignores Ctrl+C, a command hangs indefinitely, or you "
+    "cannot type new commands. After calling this, you will get a fresh bash "
+    "shell in the same working directory. Any background processes will be killed."
+)
+
 _IMAGE_READ_DESC = (
     "Read and analyze an image file. "
     "Use this ONLY for image files that you need to visually analyze. "
@@ -206,6 +214,18 @@ TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "reset_terminal",
+            "description": _RESET_TERMINAL_DESC,
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "image_read",
             "description": _IMAGE_READ_DESC,
             "parameters": {
@@ -276,11 +296,68 @@ class AgentHarness(Terminus2):
     Instead of prompting the model to output JSON/XML and parsing it, TerminusKira uses the `tools` parameter in LLM API calls for structured outputs.
     """
 
+    _PLANNING_EPISODES = 0        # only episode 0 uses high reasoning
+    _PLANNING_EFFORT = "high"     # deep thinking for understanding + planning (NOT "max" — too slow)
+    _EXECUTION_EFFORT = None       # use API default (don't override)
+    _VERIFICATION_EFFORT = "high"  # careful check before completing
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._marker_seq = 0
         self._total_time_saved = 0.0
         self._window_pool: TmuxWindowPool | None = None
+        self._current_episode = 0
+        self._consecutive_stalls = 0
+
+    async def _reset_terminal(self, session: TmuxSession) -> str:
+        """Kill all processes and respawn a fresh bash shell."""
+        env = session.environment
+        session_name = session._session_name
+
+        try:
+            await env.exec(command="pkill -9 -u $(whoami) || true", user="root")
+        except Exception:
+            pass
+        await asyncio.sleep(0.5)
+
+        try:
+            await env.exec(command=f"tmux kill-session -t {session_name} 2>/dev/null || true", user=session._user)
+        except Exception:
+            pass
+        await asyncio.sleep(0.5)
+
+        try:
+            start_cmd = (
+                f"export TERM=xterm-256color && export SHELL=/bin/bash && "
+                f'script -qc "'
+                f"tmux new-session -x {session._pane_width} -y {session._pane_height} "
+                f"-d -s {session_name} 'bash --login'"
+                f'" /dev/null'
+            )
+            await env.exec(command=start_cmd, user=session._user)
+        except Exception:
+            pass
+        await asyncio.sleep(0.5)
+
+        try:
+            await session.send_keys("export PAGER=cat GIT_PAGER=cat MANPAGER=cat LESS='-F -X'\n", block=False, min_timeout_sec=0.3)
+        except Exception:
+            pass
+
+        try:
+            await session.send_keys("cd /app\n", block=False, min_timeout_sec=0.3)
+        except Exception:
+            pass
+
+        self._consecutive_stalls = 0
+        session._previous_buffer = None
+
+        try:
+            output = await session.get_incremental_output()
+        except Exception:
+            output = "[Terminal reset complete. Fresh bash shell ready.]"
+
+        return f"[TERMINAL RESET] All processes killed. Fresh bash shell ready in /app.\n\n{output}"
 
     async def _with_block_timeout(self, coro, timeout_sec: int = BLOCK_TIMEOUT_SEC):
         """Wrap coroutine with block detection timeout."""
@@ -379,14 +456,24 @@ class AgentHarness(Terminus2):
 
         # If stall detected, append diagnostic info so the model knows
         if not found_last:
+            self._consecutive_stalls += 1
             stall_cmds = [c.keystrokes.strip()[:80] for c in commands[completed:]]
-            output += (
-                f"\n\n[WARNING: {len(commands) - completed} command(s) may not have "
-                f"completed within {hard_timeout:.0f}s. Possibly stalled commands: "
-                f"{'; '.join(stall_cmds)}. "
-                f"If a process is stuck, try: kill the process, use Ctrl+C, "
-                f"or run your next command with a fresh approach.]"
-            )
+            if self._consecutive_stalls >= 3:
+                output += (
+                    f"\n\n[CRITICAL: Terminal has been stuck for {self._consecutive_stalls} "
+                    f"consecutive commands. Stalled on: {'; '.join(stall_cmds)}. "
+                    f"Call reset_terminal to kill all processes and get a fresh shell.]"
+                )
+            else:
+                output += (
+                    f"\n\n[WARNING: {len(commands) - completed} command(s) may not have "
+                    f"completed within {hard_timeout:.0f}s. Possibly stalled commands: "
+                    f"{'; '.join(stall_cmds)}. "
+                    f"If a process is stuck, try: kill the process, use Ctrl+C, "
+                    f"or call reset_terminal to get a fresh shell.]"
+                )
+        else:
+            self._consecutive_stalls = 0
 
         return False, self._limit_output_length(output)
 
@@ -609,11 +696,11 @@ class AgentHarness(Terminus2):
 
     def _parse_tool_calls(
         self, tool_calls: list[dict[str, Any]]
-    ) -> tuple[list[Command], bool, str, str, str, ImageReadRequest | None, bool]:
+    ) -> tuple[list[Command], bool, str, str, str, ImageReadRequest | None, bool, bool]:
         """Parse tool calls into commands.
 
         Returns:
-            Tuple of (commands, is_task_complete, feedback, analysis, plan, image_read, parallel)
+            Tuple of (commands, is_task_complete, feedback, analysis, plan, image_read, parallel, reset_terminal)
         """
         commands = []
         is_task_complete = False
@@ -622,13 +709,14 @@ class AgentHarness(Terminus2):
         plan = ""
         image_read = None
         parallel = False
+        reset_terminal = False
 
         if not tool_calls:
             feedback = (
                 "WARNINGS: Your response contained no tool calls. "
                 "Please use execute_commands to run commands."
             )
-            return commands, is_task_complete, feedback, analysis, plan, image_read, parallel
+            return commands, is_task_complete, feedback, analysis, plan, image_read, parallel, reset_terminal
 
         for tool_call in tool_calls:
             function_name = tool_call.get("function", {}).get("name", "")
@@ -668,6 +756,8 @@ class AgentHarness(Terminus2):
             elif function_name == "task_complete":
                 # Mark task as complete
                 is_task_complete = True
+            elif function_name == "reset_terminal":
+                reset_terminal = True
             elif function_name == "image_read":
                 # Extract image read request
                 file_path = arguments.get("file_path", "")
@@ -686,11 +776,11 @@ class AgentHarness(Terminus2):
                 # Unknown function name - provide feedback
                 feedback = (
                     f"WARNINGS: Unknown function '{function_name}'. "
-                    "Please use execute_commands, task_complete, or image_read."
+                    "Please use execute_commands, task_complete, reset_terminal, or image_read."
                 )
                 self.logger.warning(f"Unknown function called: {function_name}")
 
-        return commands, is_task_complete, feedback, analysis, plan, image_read, parallel
+        return commands, is_task_complete, feedback, analysis, plan, image_read, parallel, reset_terminal
 
     @retry(
         stop=stop_after_attempt(5),
@@ -860,10 +950,16 @@ class AgentHarness(Terminus2):
         if hasattr(self._llm, "_api_base") and self._llm._api_base:
             completion_kwargs["api_base"] = self._llm._api_base
 
-        # Add reasoning effort if available
-        # When reasoning_effort is set, temperature MUST be 1 (API requirement)
-        if self._reasoning_effort:
-            completion_kwargs["reasoning_effort"] = self._reasoning_effort
+        # Adaptive thinking: high for planning, default for execution, high for verification
+        if self._current_episode <= self._PLANNING_EPISODES:
+            effort = self._PLANNING_EFFORT
+        elif self._pending_completion:
+            effort = self._VERIFICATION_EFFORT
+        else:
+            effort = self._EXECUTION_EFFORT
+
+        if effort is not None:
+            completion_kwargs["reasoning_effort"] = effort
             completion_kwargs["temperature"] = 1
 
         try:
@@ -905,7 +1001,7 @@ class AgentHarness(Terminus2):
         original_instruction: str = "",
         session: TmuxSession | None = None,
     ) -> tuple[
-        list[Command], bool, str, str, str, LLMResponse, ImageReadRequest | None, bool
+        list[Command], bool, str, str, str, LLMResponse, ImageReadRequest | None, bool, bool
     ]:
         """Handle LLM interaction using native tool calling.
 
@@ -1083,7 +1179,7 @@ class AgentHarness(Terminus2):
             response_path.write_text(response_text)
 
         # Parse tool calls into commands
-        commands, is_task_complete, feedback, analysis, plan, image_read, parallel = (
+        commands, is_task_complete, feedback, analysis, plan, image_read, parallel, reset_terminal = (
             self._parse_tool_calls(tool_response.tool_calls)
         )
 
@@ -1103,6 +1199,7 @@ class AgentHarness(Terminus2):
             llm_response,
             image_read,
             parallel,
+            reset_terminal,
         )
 
     async def _gather_env_snapshot(self) -> str:
@@ -1269,6 +1366,7 @@ class AgentHarness(Terminus2):
         self._context.cost_usd = None
 
         for episode in range(self._max_episodes):
+            self._current_episode = episode
             self._n_episodes = episode + 1
             if not await self._with_block_timeout(self._session.is_session_alive()):
                 self.logger.debug("Session has ended, breaking out of agent loop")
@@ -1304,6 +1402,7 @@ class AgentHarness(Terminus2):
                 llm_response,
                 image_read,
                 parallel,
+                reset_terminal,
             ) = await self._handle_llm_interaction(
                 chat, prompt, logging_paths, original_instruction, self._session
             )
@@ -1399,7 +1498,39 @@ class AgentHarness(Terminus2):
                 )
                 continue
 
-            if image_read is not None:
+            if reset_terminal:
+                self.logger.info("Agent requested terminal reset")
+                reset_output = await self._with_block_timeout(
+                    self._reset_terminal(self._session)
+                )
+                observation = reset_output
+                # Record trajectory step
+                cache_tokens_used = chat.total_cache_tokens - tokens_before_cache
+                step_cost = chat.total_cost - cost_before
+                tool_calls_list = [ToolCall(
+                    tool_call_id=f"call_{episode}_reset",
+                    function_name="reset_terminal",
+                    arguments={},
+                )]
+                self._trajectory_steps.append(Step(
+                    step_id=len(self._trajectory_steps) + 1,
+                    timestamp=datetime.now(timezone.utc).isoformat(),
+                    source="agent",
+                    model_name=self._model_name,
+                    message=message_content,
+                    reasoning_content=llm_response.reasoning_content,
+                    tool_calls=tool_calls_list,
+                    observation=Observation(results=[ObservationResult(content=observation)]),
+                    metrics=Metrics(
+                        prompt_tokens=chat.total_input_tokens - tokens_before_input,
+                        completion_tokens=chat.total_output_tokens - tokens_before_output,
+                        cached_tokens=cache_tokens_used if cache_tokens_used > 0 else None,
+                        cost_usd=step_cost if step_cost > 0 else None,
+                    ),
+                ))
+                self._dump_trajectory()
+                prompt = observation
+            elif image_read is not None:
                 # File read path
                 image_read_result = await self._execute_image_read(
                     image_read, chat, original_instruction

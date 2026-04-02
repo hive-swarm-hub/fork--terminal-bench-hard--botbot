@@ -1,0 +1,20 @@
+  20/20 Mean: 0.000 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 0:02:06 0:00:00Results written to /Users/tianhaowu/terminal-bench-hard/jobs/2026-04-01__21-12-58/result.json
+     terminus-kira-env-bootstrap (claude-opus-4-6) on terminal-bench      
+┏━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ Metric                 ┃ Value                                         ┃
+┡━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
+│ Agent                  │ terminus-kira-env-bootstrap (claude-opus-4-6) │
+│ Dataset                │ terminal-bench                                │
+│ Trials                 │ 0                                             │
+│ Errors                 │ 20                                            │
+│                        │                                               │
+│ Mean                   │ 0.000                                         │
+│                        │                                               │
+│ Exception Distribution │                                               │
+│   AttributeError       │ 20                                            │
+└────────────────────────┴───────────────────────────────────────────────┘
+
+---
+mean_pass_rate:   0.000
+correct:          0
+total:            0

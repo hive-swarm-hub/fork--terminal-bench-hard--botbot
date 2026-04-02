@@ -420,6 +420,17 @@ class AgentHarness(Terminus2):
         self.logger.info("Terminal reset completed successfully")
         return f"[TERMINAL RESET] All processes killed. Fresh bash shell ready in /app.\n\n{output}"
 
+    @staticmethod
+    def _sanitize_command(keystrokes: str) -> str:
+        """Rewrite known-dangerous command patterns at infrastructure level."""
+        import re
+        stripped = keystrokes.strip()
+        if re.match(r'^tail\s+(-[nN]\s*\d+\s+)?-f\b', stripped):
+            keystrokes = re.sub(r'-f\b', '-100', keystrokes, count=1)
+        elif re.match(r'^tail\s+--follow\b', stripped):
+            keystrokes = keystrokes.replace('--follow', '-100', 1)
+        return keystrokes
+
     async def _with_block_timeout(self, coro, timeout_sec: int = BLOCK_TIMEOUT_SEC):
         """Wrap coroutine with block detection timeout."""
         try:

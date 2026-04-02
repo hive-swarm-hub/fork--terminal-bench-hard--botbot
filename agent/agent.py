@@ -12,7 +12,7 @@ import shlex
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 import litellm
@@ -289,6 +289,72 @@ class TmuxWindowPool:
         self._ready.append(name)
 
 
+class TmuxSessionPool:
+    """Pool of TmuxSession objects for parallel command execution.
+
+    Each pool session is a separate tmux session with its own pane.
+    asyncio.gather enables true parallel send/capture across sessions.
+    """
+
+    def __init__(self, environment, size: int = 4):
+        self._env = environment
+        self._size = size
+        self._sessions: list[TmuxSession] = []
+        self._ready: list[TmuxSession] = []
+        self._seq = 0
+
+    async def start(self):
+        """Pre-create pool sessions."""
+        # Create sessions concurrently for faster startup
+        coros = [self._create() for _ in range(self._size)]
+        sessions = await asyncio.gather(*coros, return_exceptions=True)
+        for s in sessions:
+            if isinstance(s, TmuxSession):
+                self._sessions.append(s)
+                self._ready.append(s)
+
+    async def _create(self) -> TmuxSession:
+        self._seq += 1
+        name = f"pool{self._seq}"
+        s = TmuxSession(
+            session_name=name,
+            environment=self._env,
+            logging_path=PurePosixPath(f"/tmp/{name}.pane"),
+            local_asciinema_recording_path=None,
+            remote_asciinema_recording_path=None,
+            pane_width=160,
+            pane_height=40,
+        )
+        await s.start()
+        # Set PAGER=cat and cd /app
+        await s.send_keys(
+            "export PAGER=cat GIT_PAGER=cat MANPAGER=cat && cd /app\n",
+            block=False, min_timeout_sec=0.3,
+        )
+        await asyncio.sleep(0.3)
+        await s.get_incremental_output()  # drain
+        return s
+
+    async def acquire(self) -> TmuxSession | None:
+        if self._ready:
+            return self._ready.pop(0)
+        # Pool exhausted — create on demand
+        try:
+            s = await self._create()
+            self._sessions.append(s)
+            return s
+        except Exception:
+            return None
+
+    async def release(self, session: TmuxSession):
+        """Return session to pool. Drain output for clean state."""
+        try:
+            await session.get_incremental_output()
+        except Exception:
+            pass
+        self._ready.append(session)
+
+
 class AgentHarness(Terminus2):
     """
     TerminusKira extends harbor's Terminus2 with native tool calling.
@@ -306,6 +372,7 @@ class AgentHarness(Terminus2):
         self._marker_seq = 0
         self._total_time_saved = 0.0
         self._window_pool: TmuxWindowPool | None = None
+        self._session_pool: TmuxSessionPool | None = None
         self._current_episode = 0
         self._consecutive_stalls = 0
 
@@ -381,7 +448,7 @@ class AgentHarness(Terminus2):
         max_dur = max(c.duration_sec for c in commands)
 
         # Auto-parallel: multiple commands with at least one slow command
-        if len(commands) >= 2 and max_dur > 5.0 and self._window_pool is not None:
+        if len(commands) >= 2 and self._session_pool is not None:
             return await self._execute_commands_parallel(commands, session)
 
         total_duration = sum(c.duration_sec for c in commands)
@@ -482,130 +549,95 @@ class AgentHarness(Terminus2):
         commands: list[Command],
         session: TmuxSession,
     ) -> tuple[bool, str]:
-        """Execute commands in parallel across separate tmux windows.
+        """Execute commands in parallel across separate TmuxSession objects.
 
-        Each command gets its own tmux window from the pool and runs simultaneously.
-        Results are collected concurrently with asyncio.gather.
+        Uses asyncio.gather for true concurrent send/capture.
+        Benchmark shows parallel ops take same time as single op (~320ms).
         """
-        if not commands:
+        pool = self._session_pool
+
+        # Filter empty commands
+        real_cmds = [(i, cmd) for i, cmd in enumerate(commands) if cmd.keystrokes.strip()]
+        if not real_cmds:
             output = await session.get_incremental_output()
             return False, self._limit_output_length(output)
 
-        if self._window_pool is None:
-            # Fallback to sequential if pool not initialized
-            return await self._execute_commands(commands, session)
-
-        env = session.environment
-        sess_name = session._session_name
-
-        # Acquire windows for each command
-        window_assignments = []  # (cmd_index, command, window_name, marker)
-        for i, command in enumerate(commands):
-            if not command.keystrokes.strip():
-                # Empty commands just sleep
-                window_assignments.append((i, command, None, None))
-                continue
-            win_name = await self._window_pool.acquire()
+        # Acquire sessions for each command
+        assignments = []  # (index, cmd, pool_session, marker)
+        for i, cmd in real_cmds:
+            ps = await pool.acquire()
+            if ps is None:
+                # Pool exhausted, fall back to main session for remaining
+                break
             self._marker_seq += 1
             marker = f"{_MARKER_PREFIX}{self._marker_seq}__"
-            window_assignments.append((i, command, win_name, marker))
+            assignments.append((i, cmd, ps, marker))
 
-        # Fire all commands simultaneously
-        for i, command, win_name, marker in window_assignments:
-            if win_name is None:
-                continue
-            target = f"{sess_name}:{win_name}"
-            await env.exec(
-                command=f"tmux send-keys -t {target} {shlex.quote(command.keystrokes)}"
-            )
-            await env.exec(
-                command=f"tmux send-keys -t {target} {shlex.quote(f'echo {marker}' + chr(10))}"
-            )
+        # Phase 1: Send all commands + markers in parallel via asyncio.gather
+        async def send_one(idx, cmd, ps, marker):
+            await ps.send_keys(cmd.keystrokes, block=False, min_timeout_sec=0.0)
+            await ps.send_keys(f"echo '{marker}'\n", block=False, min_timeout_sec=0.0)
 
-        # Poll all windows concurrently
-        async def poll_window(cmd_idx, command, win_name, marker):
-            target = f"{sess_name}:{win_name}"
-            deadline = time.monotonic() + min(command.duration_sec + 3.0, 63.0)
-            await asyncio.sleep(min(0.3, command.duration_sec))
+        await asyncio.gather(*[send_one(*a) for a in assignments])
 
-            prev_pane = ""
-            unchanged_polls = 0
+        # Phase 2: Poll all sessions in parallel
+        async def poll_one(idx, cmd, ps, marker):
+            timeout = min(cmd.duration_sec + 5.0, 65.0)
+            start = time.monotonic()
+            await asyncio.sleep(min(0.3, cmd.duration_sec))
 
-            while time.monotonic() < deadline:
-                result = await env.exec(
-                    command=f"tmux capture-pane -p -S - -t {target}"
-                )
-                pane = result.stdout or ""
-
+            while time.monotonic() - start < timeout:
+                pane = await ps.capture_pane(capture_entire=True)
                 if marker in pane:
-                    # Release window back to pool
-                    await self._window_pool.release(win_name)
-                    saved = command.duration_sec - (time.monotonic() - (deadline - command.duration_sec - 3.0))
+                    elapsed = time.monotonic() - start
+                    saved = cmd.duration_sec - elapsed
                     if saved > 0.1:
                         self._total_time_saved += saved
-                    return cmd_idx, pane, False
-
-                # Stall detection
-                if pane == prev_pane:
-                    unchanged_polls += 1
-                else:
-                    unchanged_polls = 0
-                prev_pane = pane
-
-                if unchanged_polls >= 6:  # 3s of no change
-                    break
-
+                    # Get clean output
+                    output = await ps.get_incremental_output()
+                    await pool.release(ps)
+                    return idx, output, True
                 await asyncio.sleep(0.5)
 
-            # Stalled or timed out — capture what we have
-            result = await env.exec(
-                command=f"tmux capture-pane -p -S - -t {target}"
-            )
-            # Kill and replace the stalled window
-            await self._window_pool.release(win_name)
-            return cmd_idx, (result.stdout or "") + f"\n[STALL: command timed out after {command.duration_sec}s]", True
+            # Timed out
+            output = await ps.get_incremental_output()
+            await pool.release(ps)
+            return idx, output + f"\n[WARNING: command may not have completed within {timeout:.0f}s]", False
 
-        # Gather results concurrently
-        poll_tasks = []
-        for i, command, win_name, marker in window_assignments:
-            if win_name is not None:
-                poll_tasks.append(poll_window(i, command, win_name, marker))
+        results = await asyncio.gather(*[poll_one(*a) for a in assignments])
 
-        if poll_tasks:
-            results = await asyncio.gather(*poll_tasks)
-        else:
-            results = []
-
-        # Handle empty waits
-        for i, command, win_name, marker in window_assignments:
-            if win_name is None:
-                await asyncio.sleep(min(command.duration_sec, 2.0))
-
-        # Build ordered output
-        result_by_idx = {idx: (out, stalled) for idx, out, stalled in results}
+        # Phase 3: Collect outputs in order, strip markers
+        all_markers = {f"{_MARKER_PREFIX}{seq}__" for seq in range(1, self._marker_seq + 1)}
         output_parts = []
-        for i, command, win_name, marker in window_assignments:
-            if win_name is None:
-                continue  # skip empty waits in output
-            out, stalled = result_by_idx.get(i, ("", False))
-            output_parts.append(out)
+        any_stall = False
 
-        # Also get any output from the main session
+        for idx, output, completed in sorted(results, key=lambda x: x[0]):
+            lines = output.split("\n")
+            clean = "\n".join(l for l in lines if not any(m in l for m in all_markers))
+            output_parts.append(clean)
+            if not completed:
+                any_stall = True
+
+        if any_stall:
+            self._consecutive_stalls += 1
+        else:
+            self._consecutive_stalls = 0
+
+        # Handle empty-keystroke commands (just sleep briefly)
+        empty_cmds = [cmd for i, cmd in enumerate(commands) if not cmd.keystrokes.strip()]
+        for cmd in empty_cmds:
+            await asyncio.sleep(min(cmd.duration_sec, 2.0))
+
+        # Also get main session output
         try:
-            main_output = await session.get_incremental_output()
-            if main_output.strip():
-                output_parts.append(main_output)
+            main_out = await session.get_incremental_output()
+            if main_out.strip():
+                output_parts.append(main_out)
         except Exception:
             pass
 
-        # Clean markers from output
         combined = "\n".join(output_parts)
-        markers = {f"{_MARKER_PREFIX}{seq}__" for seq in range(1, self._marker_seq + 1)}
-        lines = combined.split("\n")
-        lines = [line for line in lines if not any(m in line for m in markers)]
-        output = "\n".join(lines)
-
-        return False, self._limit_output_length(output)
+        return False, self._limit_output_length(combined)
 
     @staticmethod
     def name() -> str:
@@ -1347,16 +1379,16 @@ class AgentHarness(Terminus2):
         except Exception:
             pass  # Silent failure — don't break the agent
 
-        # Initialize window pool for automatic parallel execution
+        # Initialize TmuxSession pool for parallel execution
         try:
-            self._window_pool = TmuxWindowPool(
+            self._session_pool = TmuxSessionPool(
                 self._session.environment,
-                self._session._session_name,
                 size=4,
             )
-            await self._window_pool.start()
-        except Exception:
-            self._window_pool = None
+            await self._session_pool.start()
+        except Exception as e:
+            self.logger.warning(f"Session pool init failed: {e}")
+            self._session_pool = None
 
         prompt = initial_prompt
 

@@ -1,0 +1,219 @@
+Agent requested terminal reset
+Agent requested terminal reset
+Terminal reset completed successfully
+Terminal reset completed successfully
+Agent requested terminal reset
+Terminal reset completed successfully
+Agent requested terminal reset
+Terminal reset completed successfully
+Agent requested terminal reset
+Agent requested terminal reset
+Terminal reset completed successfully
+Terminal reset completed successfully
+Agent requested terminal reset
+Terminal reset completed successfully
+Agent requested terminal reset
+Agent requested terminal reset
+Agent requested terminal reset
+Terminal reset completed successfully
+Agent requested terminal reset
+Terminal reset completed successfully
+Agent requested terminal reset
+Agent requested terminal reset
+Terminal reset completed successfully
+Terminal reset completed successfully
+Terminal reset completed successfully
+Agent requested terminal reset
+Terminal reset completed successfully
+Agent requested terminal reset
+Terminal reset completed successfully
+Agent requested terminal reset
+Agent requested terminal reset
+Terminal reset completed successfully
+Agent requested terminal reset
+Terminal reset completed successfully
+Terminal reset completed successfully
+Agent requested terminal reset
+Terminal reset completed successfully
+Failed to send to terminus-kira-env-bootstrap:w7: 
+Agent requested terminal reset
+Terminal reset completed successfully
+Agent requested terminal reset
+Agent requested terminal reset
+Terminal reset completed successfully
+Terminal reset completed successfully
+Agent requested terminal reset
+Terminal reset completed successfully
+Agent requested terminal reset
+Agent requested terminal reset
+Terminal reset completed successfully
+Agent requested terminal reset
+Terminal reset completed successfully
+Terminal reset completed successfully
+Agent requested terminal reset
+Terminal reset completed successfully
+Terminal reset completed successfully
+Agent requested terminal reset
+Agent requested terminal reset
+Agent requested terminal reset
+Agent requested terminal reset
+Terminal reset completed successfully
+Terminal reset completed successfully
+Terminal reset completed successfully
+Failed to send to terminus-kira-env-bootstrap:w1: 
+Terminal reset completed successfully
+Agent requested terminal reset
+Agent requested terminal reset
+Terminal reset completed successfully
+Terminal reset completed successfully
+Agent requested terminal reset
+Agent requested terminal reset
+Agent requested terminal reset
+Terminal reset completed successfully
+Terminal reset completed successfully
+Terminal reset completed successfully
+Agent requested terminal reset
+Agent requested terminal reset
+Agent requested terminal reset
+Terminal reset completed successfully
+Agent requested terminal reset
+Agent requested terminal reset
+Agent requested terminal reset
+Terminal reset completed successfully
+Terminal reset completed successfully
+Terminal reset completed successfully
+Terminal reset completed successfully
+Agent requested terminal reset
+Terminal reset completed successfully
+Agent requested terminal reset
+Terminal reset completed successfully
+Terminal reset completed successfully
+Agent requested terminal reset
+Agent requested terminal reset
+Agent requested terminal reset
+Terminal reset completed successfully
+Terminal reset completed successfully
+Agent requested terminal reset
+Terminal reset completed successfully
+Agent requested terminal reset
+Agent requested terminal reset
+Failed to send to terminus-kira-env-bootstrap:w3: 
+Agent requested terminal reset
+Terminal reset completed successfully
+Terminal reset completed successfully
+Agent requested terminal reset
+Terminal reset completed successfully
+Terminal reset completed successfully
+Terminal reset completed successfully
+Agent requested terminal reset
+Agent requested terminal reset
+Terminal reset completed successfully
+Terminal reset completed successfully
+Agent requested terminal reset
+Agent requested terminal reset
+Agent requested terminal reset
+Terminal reset completed successfully
+Terminal reset completed successfully
+Terminal reset completed successfully
+Agent requested terminal reset
+Agent requested terminal reset
+Agent requested terminal reset
+Agent requested terminal reset
+Agent requested terminal reset
+Agent requested terminal reset
+Terminal reset completed successfully
+Terminal reset completed successfully
+Terminal reset completed successfully
+Terminal reset completed successfully
+Terminal reset completed successfully
+Terminal reset completed successfully
+Agent requested terminal reset
+Agent requested terminal reset
+Terminal reset completed successfully
+Agent requested terminal reset
+Agent requested terminal reset
+Terminal reset completed successfully
+Terminal reset completed successfully
+Terminal reset completed successfully
+Agent requested terminal reset
+Terminal reset completed successfully
+Failed to send to terminus-kira-env-bootstrap:w4: 
+Agent requested terminal reset
+Terminal reset completed successfully
+Agent requested terminal reset
+Agent requested terminal reset
+Agent requested terminal reset
+Terminal reset completed successfully
+Terminal reset completed successfully
+Terminal reset completed successfully
+Agent requested terminal reset
+Agent requested terminal reset
+Terminal reset completed successfully
+Agent requested terminal reset
+Terminal reset completed successfully
+Terminal reset completed successfully
+Agent requested terminal reset
+Failed to send to terminus-kira-env-bootstrap:w5: 
+Terminal reset completed successfully
+Agent requested terminal reset
+Terminal reset completed successfully
+Agent requested terminal reset
+Terminal reset completed successfully
+Agent requested terminal reset
+Terminal reset completed successfully
+Agent requested terminal reset
+Terminal reset completed successfully
+Agent requested terminal reset
+Terminal reset completed successfully
+Agent requested terminal reset
+Agent requested terminal reset
+Terminal reset completed successfully
+Terminal reset completed successfully
+Agent requested terminal reset
+Terminal reset completed successfully
+Agent requested terminal reset
+Terminal reset completed successfully
+Agent requested terminal reset
+Terminal reset completed successfully
+Agent requested terminal reset
+Terminal reset completed successfully
+Agent requested terminal reset
+Terminal reset completed successfully
+Agent requested terminal reset
+Terminal reset completed successfully
+Agent requested terminal reset
+Terminal reset completed successfully
+Agent requested terminal reset
+Terminal reset completed successfully
+Agent requested terminal reset
+Terminal reset completed successfully
+Agent requested terminal reset
+Terminal reset completed successfully
+
+[1;31mGive Feedback / Get Help: https://github.com/BerriAI/litellm/issues/new[0m
+LiteLLM.Info: If you need to debug this error, use `litellm._turn_on_debug()'.
+
+  20/20 Mean: 0.050 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 1:01:21 0:00:00Results written to /Users/tianhaowu/terminal-bench-hard/jobs/2026-04-01__21-18-52/result.json
+     terminus-kira-env-bootstrap (claude-opus-4-6) on terminal-bench      
+┏━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ Metric                 ┃ Value                                         ┃
+┡━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
+│ Agent                  │ terminus-kira-env-bootstrap (claude-opus-4-6) │
+│ Dataset                │ terminal-bench                                │
+│ Trials                 │ 20                                            │
+│ Errors                 │ 13                                            │
+│                        │                                               │
+│ Mean                   │ 0.050                                         │
+│                        │                                               │
+│ Reward Distribution    │                                               │
+│   reward = 0.0         │ 19                                            │
+│   reward = 1.0         │ 1                                             │
+│                        │                                               │
+│ Exception Distribution │                                               │
+│   AgentTimeoutError    │ 13                                            │
+└────────────────────────┴───────────────────────────────────────────────┘
+
+---
+mean_pass_rate:   0.050
+correct:          1
+total:            20

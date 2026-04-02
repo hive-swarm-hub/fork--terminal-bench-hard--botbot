@@ -1,0 +1,34 @@
+[stall] hard timeout 60s hit, 0/1 commands completed
+Agent requested terminal reset
+Agent requested terminal reset
+Agent requested terminal reset
+Agent requested terminal reset
+
+[1;31mGive Feedback / Get Help: https://github.com/BerriAI/litellm/issues/new[0m
+LiteLLM.Info: If you need to debug this error, use `litellm._turn_on_debug()'.
+
+  20/20 Mean: 0.300 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 1:01:26 0:00:00Results written to /Users/tianhaowu/terminal-bench-hard/jobs/2026-04-02__00-15-55/result.json
+     terminus-kira-env-bootstrap (claude-opus-4-6) on terminal-bench      
+┏━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ Metric                 ┃ Value                                         ┃
+┡━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
+│ Agent                  │ terminus-kira-env-bootstrap (claude-opus-4-6) │
+│ Dataset                │ terminal-bench                                │
+│ Trials                 │ 19                                            │
+│ Errors                 │ 6                                             │
+│                        │                                               │
+│ Mean                   │ 0.300                                         │
+│                        │                                               │
+│ Reward Distribution    │                                               │
+│   reward = 0.0         │ 13                                            │
+│   reward = 1.0         │ 6                                             │
+│                        │                                               │
+│ Exception Distribution │                                               │
+│   AgentTimeoutError    │ 5                                             │
+│   BlockError           │ 1                                             │
+└────────────────────────┴───────────────────────────────────────────────┘
+
+---
+mean_pass_rate:   0.300
+correct:          6
+total:            19

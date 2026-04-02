@@ -59,6 +59,85 @@ BLOCK_TIMEOUT_SEC = 600  # 10 minutes
 _MARKER_PREFIX = "__CMDEND__"  # Marker prefix for command completion detection
 
 
+@dataclass
+class BackgroundTask:
+    """A command that exceeded its timeout and was moved to background."""
+    task_id: int
+    window: str
+    command: str
+    marker: str
+    started_at: float
+
+
+class WindowPool:
+    """Pre-allocated pool of tmux windows for isolated command execution."""
+
+    def __init__(self, environment, session_name: str, size: int = 8):
+        self._env = environment
+        self._sess = session_name
+        self._size = size
+        self._ready: list[str] = []
+        self._seq = 0
+
+    async def start(self):
+        """Pre-create pool windows."""
+        for _ in range(self._size):
+            name = await self._create()
+            self._ready.append(name)
+
+    async def _create(self) -> str:
+        self._seq += 1
+        name = f"w{self._seq}"
+        try:
+            await asyncio.wait_for(
+                self._env.exec(command=f"tmux new-window -t {self._sess} -n {name} -d"),
+                timeout=10,
+            )
+            await asyncio.wait_for(
+                self._env.exec(
+                    command=f"tmux send-keys -t {self._sess}:{name} "
+                            f"'export PAGER=cat GIT_PAGER=cat MANPAGER=cat && cd /app' Enter"
+                ),
+                timeout=10,
+            )
+        except Exception:
+            pass
+        return name
+
+    async def acquire(self) -> str:
+        if self._ready:
+            return self._ready.pop(0)
+        return await self._create()
+
+    async def release(self, name: str):
+        """Reset window and return to pool."""
+        target = f"{self._sess}:{name}"
+        try:
+            await asyncio.wait_for(
+                self._env.exec(command=f"tmux send-keys -t {target} C-c"),
+                timeout=5,
+            )
+            await asyncio.wait_for(
+                self._env.exec(command=f"tmux send-keys -t {target} ' cd /app && export PAGER=cat' Enter"),
+                timeout=5,
+            )
+        except Exception:
+            pass
+        self._ready.append(name)
+
+    async def kill_and_replace(self, name: str):
+        """Destroy a stalled window and create a fresh one."""
+        target = f"{self._sess}:{name}"
+        try:
+            await asyncio.wait_for(
+                self._env.exec(command=f"tmux kill-window -t {target} 2>/dev/null || true"),
+                timeout=5,
+            )
+        except Exception:
+            pass
+        new_name = await self._create()
+        self._ready.append(new_name)
+
 
 @dataclass
 class ToolCallResponse:
@@ -243,11 +322,20 @@ class AgentHarness(Terminus2):
     Instead of prompting the model to output JSON/XML and parsing it, TerminusKira uses the `tools` parameter in LLM API calls for structured outputs.
     """
 
+    _PLANNING_EPISODES = 0
+    _PLANNING_EFFORT = "high"
+    _EXECUTION_EFFORT = None
+    _VERIFICATION_EFFORT = "high"
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._marker_seq = 0
         self._total_time_saved = 0.0
         self._consecutive_stalls = 0
+        self._window_pool: WindowPool | None = None
+        self._background_tasks: list[BackgroundTask] = []
+        self._bg_task_seq = 0
+        self._current_episode = 0
 
     async def _reset_terminal(self, session: TmuxSession) -> str:
         """Kill all processes and respawn a fresh bash shell in the tmux session.
@@ -339,7 +427,7 @@ class AgentHarness(Terminus2):
         except asyncio.TimeoutError:
             raise BlockError(f"Infrastructure API blocked for {timeout_sec}s")
 
-    async def _execute_commands(
+    async def _execute_commands_sequential(
         self,
         commands: list[Command],
         session: TmuxSession,
@@ -453,6 +541,208 @@ class AgentHarness(Terminus2):
             self._consecutive_stalls = 0
 
         return False, self._limit_output_length(output)
+
+    async def _check_backgrounds(self) -> str:
+        """Poll all background tasks, return output for completed ones."""
+        if not self._background_tasks or self._window_pool is None:
+            return ""
+
+        env = self._session.environment if self._session else None
+        if env is None:
+            return ""
+
+        sess_name = self._session._session_name
+        completed_parts = []
+        still_running = []
+
+        for bg in self._background_tasks:
+            target = f"{sess_name}:{bg.window}"
+            try:
+                result = await asyncio.wait_for(
+                    env.exec(command=f"tmux capture-pane -p -S - -t {target}"),
+                    timeout=10,
+                )
+                pane = result.stdout or ""
+                if bg.marker in pane:
+                    # Completed!
+                    elapsed = time.monotonic() - bg.started_at
+                    all_markers = {f"{_MARKER_PREFIX}{seq}__" for seq in range(1, self._marker_seq + 1)}
+                    lines = pane.split("\n")
+                    clean = "\n".join(l for l in lines if not any(m in l for m in all_markers))
+                    completed_parts.append(
+                        f"[Background #{bg.task_id} completed ({elapsed:.0f}s): {bg.command}]\n{clean}"
+                    )
+                    await self._window_pool.release(bg.window)
+                else:
+                    elapsed = time.monotonic() - bg.started_at
+                    if elapsed > 300:  # 5 min timeout — kill it
+                        await self._window_pool.kill_and_replace(bg.window)
+                        completed_parts.append(
+                            f"[Background #{bg.task_id} KILLED after {elapsed:.0f}s: {bg.command}]"
+                        )
+                    else:
+                        still_running.append(bg)
+            except Exception:
+                still_running.append(bg)
+
+        self._background_tasks = still_running
+        return "\n".join(completed_parts)
+
+    async def _execute_commands(
+        self,
+        commands: list[Command],
+        session: TmuxSession,
+    ) -> tuple[bool, str]:
+        """Execute commands in isolated pool windows with background management."""
+        import shlex
+
+        output_parts = []
+
+        # Phase 0: Check completed background tasks
+        completed_bg = await self._check_backgrounds()
+        if completed_bg:
+            output_parts.append(completed_bg)
+
+        if not commands:
+            main_output = await session.get_incremental_output()
+            if main_output.strip():
+                output_parts.append(main_output)
+            return False, self._limit_output_length("\n".join(output_parts))
+
+        # Sanitize
+        for cmd in commands:
+            cmd.keystrokes = self._sanitize_command(cmd.keystrokes)
+
+        # If no pool, fall back to main session sequential
+        if self._window_pool is None:
+            return await self._execute_commands_sequential(commands, session)
+
+        env = session.environment
+        sess_name = session._session_name
+
+        # Phase 1: Acquire windows and fire all commands
+        assignments = []  # (index, cmd, window, marker)
+        for i, cmd in enumerate(commands):
+            if not cmd.keystrokes.strip():
+                assignments.append((i, cmd, None, None))
+                continue
+            win = await self._window_pool.acquire()
+            self._marker_seq += 1
+            marker = f"{_MARKER_PREFIX}{self._marker_seq}__"
+            assignments.append((i, cmd, win, marker))
+
+        # Send all commands simultaneously
+        for i, cmd, win, marker in assignments:
+            if win is None:
+                continue
+            target = f"{sess_name}:{win}"
+            try:
+                await asyncio.wait_for(
+                    env.exec(command=f"tmux send-keys -t {target} {shlex.quote(cmd.keystrokes)}"),
+                    timeout=10,
+                )
+                await asyncio.wait_for(
+                    env.exec(command=f"tmux send-keys -t {target} {shlex.quote(f'echo {marker}' + chr(10))}"),
+                    timeout=10,
+                )
+            except Exception as e:
+                self.logger.warning(f"Failed to send to {target}: {e}")
+
+        # Phase 2: Poll all windows concurrently
+        async def poll_one(idx, cmd, win, marker):
+            target = f"{sess_name}:{win}"
+            timeout = min(cmd.duration_sec + 5.0, 65.0)  # cap at 65s
+            start = time.monotonic()
+            await asyncio.sleep(min(0.3, cmd.duration_sec))
+
+            while time.monotonic() - start < timeout:
+                try:
+                    result = await asyncio.wait_for(
+                        env.exec(command=f"tmux capture-pane -p -S - -t {target}"),
+                        timeout=10,
+                    )
+                    pane = result.stdout or ""
+                    if marker in pane:
+                        elapsed = time.monotonic() - start
+                        saved = cmd.duration_sec - elapsed
+                        if saved > 0.1:
+                            self._total_time_saved += saved
+                        return idx, pane, True, win  # completed
+                except Exception:
+                    pass
+                await asyncio.sleep(0.5)
+
+            # Timed out — capture partial
+            try:
+                result = await asyncio.wait_for(
+                    env.exec(command=f"tmux capture-pane -p -S - -t {target}"),
+                    timeout=10,
+                )
+                partial = result.stdout or ""
+            except Exception:
+                partial = ""
+            return idx, partial, False, win  # not completed
+
+        poll_tasks = []
+        for i, cmd, win, marker in assignments:
+            if win is not None:
+                poll_tasks.append(poll_one(i, cmd, win, marker))
+
+        if poll_tasks:
+            results = await asyncio.gather(*poll_tasks)
+        else:
+            results = []
+
+        # Handle empty waits
+        for i, cmd, win, marker in assignments:
+            if win is None:
+                await asyncio.sleep(min(cmd.duration_sec, 2.0))
+
+        # Phase 3: Process results
+        result_map = {idx: (pane, completed, win) for idx, pane, completed, win in results}
+
+        for i, cmd, win, marker in assignments:
+            if win is None:
+                continue
+            if i not in result_map:
+                continue
+            pane, completed, w = result_map[i]
+
+            # Strip markers from pane output
+            all_markers = {f"{_MARKER_PREFIX}{seq}__" for seq in range(1, self._marker_seq + 1)}
+            lines = pane.split("\n")
+            clean = "\n".join(l for l in lines if not any(m in l for m in all_markers))
+
+            if completed:
+                output_parts.append(clean)
+                await self._window_pool.release(w)
+                self._consecutive_stalls = 0
+            else:
+                # Move to background
+                self._bg_task_seq += 1
+                bg = BackgroundTask(
+                    task_id=self._bg_task_seq,
+                    window=w,
+                    command=cmd.keystrokes.strip()[:80],
+                    marker=marker,
+                    started_at=time.monotonic(),
+                )
+                self._background_tasks.append(bg)
+                output_parts.append(
+                    f"{clean}\n[BACKGROUND #{bg.task_id}: '{bg.command}' still running after "
+                    f"{min(cmd.duration_sec + 5, 65):.0f}s — will report when complete]"
+                )
+
+        # Also drain main session output
+        try:
+            main_out = await session.get_incremental_output()
+            if main_out.strip():
+                output_parts.append(main_out)
+        except Exception:
+            pass
+
+        combined = "\n".join(output_parts)
+        return False, self._limit_output_length(combined)
 
     @staticmethod
     def name() -> str:
@@ -795,10 +1085,16 @@ class AgentHarness(Terminus2):
         if hasattr(self._llm, "_api_base") and self._llm._api_base:
             completion_kwargs["api_base"] = self._llm._api_base
 
-        # Add reasoning effort if available
-        # When reasoning_effort is set, temperature MUST be 1 (API requirement)
-        if self._reasoning_effort:
-            completion_kwargs["reasoning_effort"] = self._reasoning_effort
+        # Adaptive thinking budget
+        if self._current_episode <= self._PLANNING_EPISODES:
+            effort = self._PLANNING_EFFORT
+        elif self._pending_completion:
+            effort = self._VERIFICATION_EFFORT
+        else:
+            effort = self._EXECUTION_EFFORT
+
+        if effort is not None:
+            completion_kwargs["reasoning_effort"] = effort
             completion_kwargs["temperature"] = 1
 
         try:
@@ -1185,6 +1481,17 @@ class AgentHarness(Terminus2):
         except Exception:
             pass  # Silent failure — don't break the agent
 
+        # Initialize window pool for isolated command execution
+        try:
+            self._window_pool = WindowPool(
+                self._session.environment,
+                self._session._session_name,
+                size=8,
+            )
+            await self._window_pool.start()
+        except Exception:
+            self._window_pool = None
+
         prompt = initial_prompt
 
         self._context.n_input_tokens = 0
@@ -1193,6 +1500,7 @@ class AgentHarness(Terminus2):
         self._context.cost_usd = None
 
         for episode in range(self._max_episodes):
+            self._current_episode = episode
             self._n_episodes = episode + 1
             if not await self._with_block_timeout(self._session.is_session_alive()):
                 self.logger.debug("Session has ended, breaking out of agent loop")

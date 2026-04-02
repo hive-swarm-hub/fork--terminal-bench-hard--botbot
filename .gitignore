@@ -3,3 +3,4 @@ __pycache__/
 run.log
 results.tsv
 jobs/
+.hive/

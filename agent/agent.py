@@ -575,34 +575,58 @@ class AgentHarness(Terminus2):
 
         # Phase 1: Send all commands + markers in parallel via asyncio.gather
         async def send_one(idx, cmd, ps, marker):
-            await ps.send_keys(cmd.keystrokes, block=False, min_timeout_sec=0.0)
-            await ps.send_keys(f"echo '{marker}'\n", block=False, min_timeout_sec=0.0)
+            try:
+                await ps.send_keys(cmd.keystrokes, block=False, min_timeout_sec=0.0)
+                await ps.send_keys(f"echo '{marker}'\n", block=False, min_timeout_sec=0.0)
+                return True
+            except Exception as e:
+                self.logger.warning(f"Pool send failed: {e}")
+                return False
 
-        await asyncio.gather(*[send_one(*a) for a in assignments])
+        send_results = await asyncio.gather(*[send_one(*a) for a in assignments])
+        # Filter out failed sends — release their sessions
+        ok_assignments = []
+        for (idx, cmd, ps, marker), ok in zip(assignments, send_results):
+            if ok:
+                ok_assignments.append((idx, cmd, ps, marker))
+            else:
+                await pool.release(ps)
+        assignments = ok_assignments
+
+        if not assignments:
+            # All sends failed — fall back to sequential
+            return await self._execute_commands_sequential(commands, session)
 
         # Phase 2: Poll all sessions in parallel
         async def poll_one(idx, cmd, ps, marker):
-            timeout = min(cmd.duration_sec + 5.0, 65.0)
-            start = time.monotonic()
-            await asyncio.sleep(min(0.3, cmd.duration_sec))
+            try:
+                timeout = min(cmd.duration_sec + 5.0, 65.0)
+                start = time.monotonic()
+                await asyncio.sleep(min(0.3, cmd.duration_sec))
 
-            while time.monotonic() - start < timeout:
-                pane = await ps.capture_pane(capture_entire=True)
-                if marker in pane:
-                    elapsed = time.monotonic() - start
-                    saved = cmd.duration_sec - elapsed
-                    if saved > 0.1:
-                        self._total_time_saved += saved
-                    # Get clean output
-                    output = await ps.get_incremental_output()
+                while time.monotonic() - start < timeout:
+                    pane = await ps.capture_pane(capture_entire=True)
+                    if marker in pane:
+                        elapsed = time.monotonic() - start
+                        saved = cmd.duration_sec - elapsed
+                        if saved > 0.1:
+                            self._total_time_saved += saved
+                        output = await ps.get_incremental_output()
+                        await pool.release(ps)
+                        return idx, output, True
+                    await asyncio.sleep(0.5)
+
+                # Timed out
+                output = await ps.get_incremental_output()
+                await pool.release(ps)
+                return idx, output + f"\n[WARNING: command may not have completed within {timeout:.0f}s]", False
+            except Exception as e:
+                self.logger.warning(f"Pool poll failed: {e}")
+                try:
                     await pool.release(ps)
-                    return idx, output, True
-                await asyncio.sleep(0.5)
-
-            # Timed out
-            output = await ps.get_incremental_output()
-            await pool.release(ps)
-            return idx, output + f"\n[WARNING: command may not have completed within {timeout:.0f}s]", False
+                except Exception:
+                    pass
+                return idx, f"[ERROR: command execution failed: {e}]", False
 
         results = await asyncio.gather(*[poll_one(*a) for a in assignments])
 
